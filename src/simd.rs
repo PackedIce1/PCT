@@ -95,10 +95,7 @@ pub fn find_first_byte_simd(input: &[u8], byte: u8) -> Option<usize> {
     }
 
     // Scalar tail
-    input[i..]
-        .iter()
-        .position(|&b| b == byte)
-        .map(|p| i + p)
+    input[i..].iter().position(|&b| b == byte).map(|p| i + p)
 }
 
 /// SIMD scan for the first byte needing encoding in **idempotent** mode.
@@ -109,10 +106,7 @@ pub fn find_first_byte_simd(input: &[u8], byte: u8) -> Option<usize> {
 /// position — the scalar code will correctly handle `%XX` sequences,
 /// bare `%`, lowercase-hex normalization, and set membership.
 #[inline]
-pub fn find_first_byte_idempotent_simd(
-    input: &[u8],
-    set: &EncodeSet,
-) -> Option<usize> {
+pub fn find_first_byte_idempotent_simd(input: &[u8], set: &EncodeSet) -> Option<usize> {
     let mut i = 0;
     let len = input.len();
 
@@ -234,10 +228,7 @@ mod tests {
         // A space in the middle of an otherwise-clean chunk
         let mut input = [b'a'; 32];
         input[10] = b' ';
-        assert_eq!(
-            find_first_byte_idempotent_simd(&input, &set),
-            Some(10)
-        );
+        assert_eq!(find_first_byte_idempotent_simd(&input, &set), Some(10));
     }
 
     #[test]
@@ -247,12 +238,9 @@ mod tests {
         // the SIMD scan will fall back to scalar — which correctly
         // recognizes it as already-encoded and returns None.
         let input = b"aaaaaaaaaaaaaaaaaaaaaaa%20aaa"; // 30 bytes
-        // This input is too short to hit the 32-byte SIMD lane; the
-        // scalar fallback handles it directly.
-        assert_eq!(
-            find_first_byte_idempotent_simd(input, &set),
-            None
-        );
+                                                      // This input is too short to hit the 32-byte SIMD lane; the
+                                                      // scalar fallback handles it directly.
+        assert_eq!(find_first_byte_idempotent_simd(input, &set), None);
     }
 
     #[test]

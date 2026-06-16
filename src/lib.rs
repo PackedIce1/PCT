@@ -106,9 +106,9 @@ mod simd;
 // ── Alloc-gated modules ─────────────────────────────────────────────
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-mod encode;
-#[cfg(any(feature = "alloc", feature = "std"))]
 mod decode;
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod encode;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod form;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -119,11 +119,10 @@ mod iri;
 
 // ── Re-exports: always available ────────────────────────────────────
 
-pub use hex::{hex_val, is_hex, is_hex_lower, decode_hex_pair, HEX_LOWER, HEX_UPPER};
+pub use hex::{decode_hex_pair, hex_val, is_hex, is_hex_lower, HEX_LOWER, HEX_UPPER};
 pub use scan::{
     encoded_len_idempotent, encoded_len_raw, find_first_byte, find_first_byte_idempotent,
-    find_first_byte_raw, is_valid, is_valid_bytes, needs_encoding_idempotent,
-    needs_encoding_raw,
+    find_first_byte_raw, is_valid, is_valid_bytes, needs_encoding_idempotent, needs_encoding_raw,
 };
 pub use set::EncodeSet;
 
