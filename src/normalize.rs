@@ -99,11 +99,7 @@ fn do_normalize(input: &[u8]) -> String {
     let mut out = Vec::with_capacity(input.len());
     let mut i = 0;
     while i < input.len() {
-        if input[i] == b'%'
-            && i + 2 < input.len()
-            && is_hex(input[i + 1])
-            && is_hex(input[i + 2])
-        {
+        if input[i] == b'%' && i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
             let decoded = (hex_val(input[i + 1]) << 4) | hex_val(input[i + 2]);
             if is_unreserved(decoded) {
                 out.push(decoded);
