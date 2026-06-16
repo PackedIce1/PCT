@@ -34,11 +34,11 @@ use crate::set::EncodeSet;
 pub fn find_first_byte(input: &[u8], byte: u8) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        return crate::simd::find_first_byte_simd(input, byte);
+        crate::simd::find_first_byte_simd(input, byte);
     }
     #[cfg(not(feature = "simd"))]
     {
-        return find_first_byte_scalar(input, byte);
+        find_first_byte_scalar(input, byte)
     }
 }
 
@@ -74,11 +74,11 @@ pub(crate) fn find_first_byte_scalar(input: &[u8], byte: u8) -> Option<usize> {
 pub fn find_first_byte_idempotent(input: &[u8], set: &EncodeSet) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        return crate::simd::find_first_byte_idempotent_simd(input, set);
+        crate::simd::find_first_byte_idempotent_simd(input, set);
     }
     #[cfg(not(feature = "simd"))]
     {
-        return find_first_byte_idempotent_scalar(input, set);
+        find_first_byte_idempotent_scalar(input, set)
     }
 }
 
@@ -87,10 +87,7 @@ pub fn find_first_byte_idempotent(input: &[u8], set: &EncodeSet) -> Option<usize
 /// Exposed as `pub(crate)` so the `simd` module can call it for tail
 /// processing and non-clean chunks.
 #[inline]
-pub(crate) fn find_first_byte_idempotent_scalar(
-    input: &[u8],
-    set: &EncodeSet,
-) -> Option<usize> {
+pub(crate) fn find_first_byte_idempotent_scalar(input: &[u8], set: &EncodeSet) -> Option<usize> {
     let mut i = 0;
     let len = input.len();
     while i < len {
@@ -139,11 +136,11 @@ pub fn needs_encoding_idempotent(input: &[u8], set: &EncodeSet) -> bool {
 pub fn find_first_byte_raw(input: &[u8], set: &EncodeSet) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        return crate::simd::find_first_byte_raw_simd(input, set);
+        crate::simd::find_first_byte_raw_simd(input, set);
     }
     #[cfg(not(feature = "simd"))]
     {
-        return find_first_byte_raw_scalar(input, set);
+        find_first_byte_raw_scalar(input, set)
     }
 }
 
@@ -279,45 +276,30 @@ mod tests {
             find_first_byte_idempotent(b"hello world", &set),
             Some(5) // space
         );
-        assert_eq!(
-            find_first_byte_idempotent(b"hello", &set),
-            None
-        );
+        assert_eq!(find_first_byte_idempotent(b"hello", &set), None);
     }
 
     #[test]
     fn find_first_byte_idempotent_preserves_pct() {
         let set = EncodeSet::COMPONENT;
         // Already-valid uppercase %XX → preserved, no scan hit
-        assert_eq!(
-            find_first_byte_idempotent(b"foo%20bar", &set),
-            None
-        );
+        assert_eq!(find_first_byte_idempotent(b"foo%20bar", &set), None);
     }
 
     #[test]
     fn find_first_byte_idempotent_lowercase_pct() {
         let set = EncodeSet::COMPONENT;
         // Lowercase %2f → must be normalized to %2F
-        assert_eq!(
-            find_first_byte_idempotent(b"foo%2fbar", &set),
-            Some(3)
-        );
+        assert_eq!(find_first_byte_idempotent(b"foo%2fbar", &set), Some(3));
     }
 
     #[test]
     fn find_first_byte_idempotent_bare_pct() {
         let set = EncodeSet::COMPONENT;
         // Bare % at end → must encode
-        assert_eq!(
-            find_first_byte_idempotent(b"100%", &set),
-            Some(3)
-        );
+        assert_eq!(find_first_byte_idempotent(b"100%", &set), Some(3));
         // Bare % in middle
-        assert_eq!(
-            find_first_byte_idempotent(b"100% off", &set),
-            Some(3)
-        );
+        assert_eq!(find_first_byte_idempotent(b"100% off", &set), Some(3));
     }
 
     #[test]
