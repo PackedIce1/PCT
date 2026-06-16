@@ -17,3 +17,20 @@ exclude = ["/.github", "/tests"]
 default = []
 std = []
 iri = []
+
+[dev-dependencies]
+criterion = "0.5"
+percent-encoding = "2"
+urlencoding = "2"
+
+[[bench]]
+name = "encode"
+harness = false
+
+[[bench]]
+name = "decode"
+harness = false
+
+[[bench]]
+name = "form"
+harness = false
