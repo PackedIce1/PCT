@@ -9,7 +9,7 @@
 //!   URL mode and decoded from form data via dedicated
 //!   [`encode_form()`] / [`decode_form()`] functions.
 //! - **Built-in `application/x-www-form-urlencoded`** — see the
-//!   [`form`] module.
+//!   `form` module.
 //! - **Arbitrary binary data** — [`encode_bytes()`] works on `&[u8]`.
 //! - **Predefined context sets** — [`COMPONENT`](EncodeSet::COMPONENT),
 //!   [`PATH`](EncodeSet::PATH), [`QUERY`](EncodeSet::QUERY),
