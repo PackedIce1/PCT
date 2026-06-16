@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use pct::{encode_form, decode_form};
+use pct::{decode_form, encode_form};
 
 fn bench_encode_form(c: &mut Criterion) {
     let input = "name=hello world&value=a+b";
