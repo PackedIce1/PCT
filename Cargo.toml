@@ -1,22 +1,40 @@
 [package]
 name = "pct"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Percent-encoding and decoding for URLs with built-in form-urlencoded support"
+description = "Percent-encoding and decoding for URLs — no_std with optional alloc, optional SIMD, zero-allocation Cow API"
 license = "MPL-2.0"
 keywords = ["url", "percent", "encoding", "form", "urlencode"]
 categories = ["encoding", "no-std", "web-programming"]
-repository = "https://github.com/user/pct"
-homepage = "https://github.com/user/pct"
+repository = "https://github.com/PackedIce1/PCT"
+homepage = "https://github.com/PackedIce1/PCT"
 documentation = "https://docs.rs/pct"
 readme = "README.md"
 exclude = ["/.github", "/tests"]
 
 [features]
-default = []
-std = []
-iri = []
+# By default the crate provides the full Cow-returning API, which requires
+# `alloc`. Disable default features to use only the allocation-free core
+# (EncodeSet, is_valid, scanning, length pre-computation) — useful in
+# kernels and embedded targets without a heap.
+default = ["alloc"]
+
+# Enables allocation-backed APIs (encode, decode, encode_form, etc.).
+# Implied by `std`.
+alloc = []
+
+# Enables `std::error::Error` for `DecodeError` and any std-only helpers.
+# Implies `alloc`.
+std = ["alloc"]
+
+# Optional IRI → URI encoding (requires `alloc`).
+iri = ["alloc"]
+
+# SIMD acceleration via `core::simd` (nightly-only, requires
+# `#![feature(portable_simd)]`). Accelerates the no-op fast path so that
+# already-canonical inputs are scanned at 32 bytes per cycle on AVX2 / NEON.
+simd = []
 
 [dev-dependencies]
 criterion = "0.5"
