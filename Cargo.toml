@@ -2,7 +2,7 @@
 name = "pct"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.85"
 description = "Percent-encoding and decoding for URLs with built-in form-urlencoded support"
 license = "MPL-2.0"
 keywords = ["url", "percent", "encoding", "form", "urlencode"]
