@@ -1,6 +1,28 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pct::{decode, decode_passthrough, decode_strict};
 
+/// Benchmark the zero-allocation fast path: an input with no `%`
+/// characters should be returned as `Cow::Borrowed` without any
+/// allocation. This is where the `simd` feature shines — `find_first_byte`
+/// scans 32 bytes per cycle looking for `%`.
+fn bench_decode_noop_long(c: &mut Criterion) {
+    // 256 bytes with no '%' — exercises the SIMD fast path.
+    let input = "the quick brown fox jumps over the lazy dog \
+                 the quick brown fox jumps over the lazy dog \
+                 the quick brown fox jumps over the lazy dog \
+                 the quick brown fox jumps over the lazy dog";
+
+    let mut group = c.benchmark_group("decode_noop_long_fast_path");
+    group.bench_function("pct::decode (no-op)", |b| {
+        b.iter(|| decode(black_box(input)))
+    });
+    group.bench_function("percent-encoding", |b| {
+        use percent_encoding::percent_decode_str;
+        b.iter(|| percent_decode_str(black_box(input)).decode_utf8_lossy())
+    });
+    group.finish();
+}
+
 fn bench_decode_short(c: &mut Criterion) {
     let input = "hello%20world";
 
@@ -58,6 +80,7 @@ fn bench_decode_noop(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_decode_noop_long,
     bench_decode_short,
     bench_decode_long,
     bench_decode_modes,
