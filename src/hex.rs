@@ -22,10 +22,7 @@ pub const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";
 /// Returns `true` if `byte` is an ASCII hex digit (`0-9`, `a-f`, `A-F`).
 #[inline]
 pub const fn is_hex(byte: u8) -> bool {
-    matches!(
-        byte,
-        b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'
-    )
+    byte.is_ascii_hexdigit()
 }
 
 /// Returns `true` if `byte` is a *lowercase* ASCII hex digit (`0-9`, `a-f`).
