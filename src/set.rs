@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use core::fmt;
 
 /// A set of bytes that should be percent-encoded.
@@ -7,6 +6,9 @@ use core::fmt;
 /// efficient lookup. Build sets with the [`add`](Self::add) /
 /// [`remove`](Self::remove) builder pattern, or use one of the predefined
 /// constants.
+///
+/// `EncodeSet` is always available — it does **not** require the `alloc`
+/// feature, making it usable in `#![no_std]` environments without a heap.
 ///
 /// # Examples
 ///
@@ -92,6 +94,18 @@ impl EncodeSet {
         (self.bits[idx] >> bit) & 1 != 0
     }
 
+    /// Returns the raw 256-bit bitmask as four `u64` words.
+    ///
+    /// Word 0 covers bytes `0x00–0x3F`, word 1 covers `0x40–0x7F`,
+    /// word 2 covers `0x80–0xBF`, word 3 covers `0xC0–0xFF`.
+    ///
+    /// Useful for callers that want to do their own SIMD-style batch
+    /// checks against the bitmask.
+    #[inline]
+    pub const fn bits(&self) -> &[u64; 4] {
+        &self.bits
+    }
+
     // ------------------------------------------------------------------
     // Predefined sets
     // ------------------------------------------------------------------
@@ -151,15 +165,15 @@ impl EncodeSet {
 
 impl fmt::Debug for EncodeSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut bytes = Vec::new();
+        // Build the debug list directly against the formatter — no Vec
+        // allocation needed. This works in `#![no_std]` without `alloc`.
+        let mut list = f.debug_list();
         for b in 0u16..=255 {
             if self.contains(b as u8) {
-                bytes.push(b as u8);
+                list.entry(&(b as u8));
             }
         }
-        f.debug_struct("EncodeSet")
-            .field("encoded_bytes", &bytes)
-            .finish()
+        list.finish()
     }
 }
 
@@ -257,5 +271,32 @@ mod tests {
     #[test]
     fn fragment_set_keeps_hash() {
         assert!(!EncodeSet::FRAGMENT.contains(b'#'));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn debug_does_not_allocate() {
+        // The Debug impl writes directly to the formatter (no Vec), so it
+        // works without alloc. We just exercise it here — the test
+        // itself uses format! (which requires alloc) but the impl under
+        // test does not.
+        //
+        // The output is a debug_list of bytes, e.g. `[0, 1, 2, ..., 255]`.
+        let set = EncodeSet::COMPONENT;
+        let s = alloc::format!("{set:?}");
+        assert!(s.starts_with('['), "debug_list should start with '[': {s}");
+        assert!(s.contains("32"), "COMPONENT contains space (0x20=32): {s}");
+
+        let empty = EncodeSet::new();
+        let s2 = alloc::format!("{empty:?}");
+        assert_eq!(s2, "[]", "empty set should format as []: {s2}");
+    }
+
+    #[test]
+    fn bits_accessor() {
+        let set = EncodeSet::new().add(b' ');
+        let bits = set.bits();
+        // Space is byte 0x20 = 32, which is bit 32 in word 0.
+        assert_eq!(bits[0] & (1u64 << 32), 1u64 << 32);
     }
 }

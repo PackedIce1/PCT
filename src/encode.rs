@@ -1,25 +1,18 @@
+//! Percent-encoding functions.
+//!
+//! Requires the `alloc` feature. The allocation-free scanning helpers
+//! (`needs_encoding_raw`, `needs_encoding_idempotent`, `encoded_len_*`)
+//! live in the [`crate::scan`] module and are always available.
+
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::hex::{hex_val, is_hex, HEX_UPPER};
+use crate::scan::{
+    encoded_len_idempotent, encoded_len_raw, find_first_byte_idempotent, find_first_byte_raw,
+};
 use crate::set::EncodeSet;
-
-pub(crate) const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
-
-#[inline]
-pub(crate) fn is_hex(byte: u8) -> bool {
-    byte.is_ascii_hexdigit()
-}
-
-#[inline]
-pub(crate) const fn hex_val(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        b'A'..=b'F' => byte - b'A' + 10,
-        _ => 0,
-    }
-}
 
 /// Percent-encode a string using the [`COMPONENT`](EncodeSet::COMPONENT) set
 /// with **idempotent** behaviour.
@@ -30,6 +23,12 @@ pub(crate) const fn hex_val(byte: u8) -> u8 {
 ///
 /// This is the safest default for encoding user-supplied text that may
 /// already contain some percent-encoded sequences.
+///
+/// # Zero-allocation fast path
+///
+/// If the input needs no encoding, this function returns `Cow::Borrowed`
+/// without allocating. The scan is SIMD-accelerated when the `simd` feature
+/// is enabled.
 ///
 /// # Examples
 ///
@@ -49,10 +48,11 @@ pub fn encode(input: &str) -> Cow<'_, str> {
 ///
 /// See [`encode()`] for the idempotency rules.
 pub fn encode_with<'a>(input: &'a str, set: &EncodeSet) -> Cow<'a, str> {
-    if !needs_encoding_idempotent(input.as_bytes(), set) {
+    let bytes = input.as_bytes();
+    if find_first_byte_idempotent(bytes, set).is_none() {
         return Cow::Borrowed(input);
     }
-    Cow::Owned(do_encode_idempotent(input.as_bytes(), set))
+    Cow::Owned(do_encode_idempotent(bytes, set))
 }
 
 /// Percent-encode a string with a custom [`EncodeSet`] in **raw** (non-idempotent) mode.
@@ -68,10 +68,11 @@ pub fn encode_with<'a>(input: &'a str, set: &EncodeSet) -> Cow<'a, str> {
 /// assert_eq!(encode_raw("hello%20world", &EncodeSet::COMPONENT), "hello%2520world");
 /// ```
 pub fn encode_raw<'a>(input: &'a str, set: &EncodeSet) -> Cow<'a, str> {
-    if !needs_encoding_raw(input.as_bytes(), set) {
+    let bytes = input.as_bytes();
+    if find_first_byte_raw(bytes, set).is_none() {
         return Cow::Borrowed(input);
     }
-    Cow::Owned(do_encode_raw(input.as_bytes(), set, false))
+    Cow::Owned(do_encode_raw(bytes, set, false))
 }
 
 /// Percent-encode arbitrary binary data with a custom [`EncodeSet`].
@@ -85,43 +86,20 @@ pub fn encode_bytes(input: &[u8], set: &EncodeSet) -> String {
 
 // ── Internal helpers ────────────────────────────────────────────────
 
-fn needs_encoding_idempotent(input: &[u8], set: &EncodeSet) -> bool {
-    let mut i = 0;
-    while i < input.len() {
-        let byte = input[i];
-        if byte == b'%' {
-            if i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
-                // Check for lowercase hex that should be normalised to uppercase
-                if input[i + 1].is_ascii_lowercase() || input[i + 2].is_ascii_lowercase() {
-                    return true;
-                }
-                i += 3;
-                continue;
-            }
-            // Bare % — needs encoding
-            return true;
-        }
-        if set.contains(byte) {
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
-fn needs_encoding_raw(input: &[u8], set: &EncodeSet) -> bool {
-    input.iter().any(|&b| set.contains(b))
-}
-
 /// Idempotent encoding pass. Already-valid `%XX` sequences are preserved
 /// (with hex digits normalised to uppercase); bare `%` is encoded as `%25`.
 fn do_encode_idempotent(input: &[u8], set: &EncodeSet) -> String {
-    let mut out = Vec::with_capacity(input.len());
+    // Pre-size the buffer using the scan module's length computation.
+    // This avoids re-allocations during the encoding pass.
+    let cap = encoded_len_idempotent(input, set);
+    let mut out = Vec::with_capacity(cap);
+
     let mut i = 0;
-    while i < input.len() {
+    let len = input.len();
+    while i < len {
         let byte = input[i];
         if byte == b'%' {
-            if i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
+            if i + 2 < len && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
                 out.push(b'%');
                 out.push(HEX_UPPER[hex_val(input[i + 1]) as usize]);
                 out.push(HEX_UPPER[hex_val(input[i + 2]) as usize]);
@@ -150,7 +128,8 @@ fn do_encode_idempotent(input: &[u8], set: &EncodeSet) -> String {
 /// Raw encoding pass. Every byte in the set (and optionally every byte ≥ 0x80)
 /// is percent-encoded.
 fn do_encode_raw(input: &[u8], set: &EncodeSet, force_high: bool) -> String {
-    let mut out = Vec::with_capacity(input.len());
+    let cap = encoded_len_raw(input, set, force_high);
+    let mut out = Vec::with_capacity(cap);
     for &byte in input {
         if set.contains(byte) || (force_high && byte >= 0x80) {
             out.push(b'%');
@@ -221,6 +200,17 @@ mod tests {
         let result = encode(input);
         assert_eq!(result, input);
         assert!(matches!(result, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn encode_long_unreserved_input_noop() {
+        // A long all-unreserved input should hit the SIMD fast path and
+        // return Cow::Borrowed without allocating.
+        let input = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~\
+                     ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        let result = encode(input);
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(&*result, input);
     }
 
     // ── encode_raw() ────────────────────────────────────────────

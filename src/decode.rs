@@ -1,9 +1,16 @@
+//! Percent-decoding functions.
+//!
+//! Requires the `alloc` feature. The allocation-free scan
+//! ([`crate::scan::find_first_byte()`]) is used to detect the no-op case
+//! where the input contains no `%` and can be returned as `Cow::Borrowed`.
+
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::encode::{hex_val, is_hex};
+use crate::hex::{hex_val, is_hex};
+use crate::scan::find_first_byte;
 
 // ── Error type ─────────────────────────────────────────────────────
 
@@ -67,6 +74,12 @@ impl std::error::Error for DecodeError {}
 /// - `%` at the end of the string → replaced with `\u{FFFD}`
 /// - Decoded bytes that are not valid UTF-8 → replaced with `\u{FFFD}`
 ///
+/// # Zero-allocation fast path
+///
+/// If the input contains no `%` byte, returns `Cow::Borrowed` without
+/// allocating. The scan is SIMD-accelerated when the `simd` feature is
+/// enabled.
+///
 /// # Examples
 ///
 /// ```
@@ -76,12 +89,14 @@ impl std::error::Error for DecodeError {}
 /// assert_eq!(decode("caf%C3%A9"), "café");
 /// ```
 pub fn decode(input: &str) -> Cow<'_, str> {
-    if !needs_decoding(input.as_bytes()) {
+    let bytes = input.as_bytes();
+    // Fast path: no '%' means no decoding needed.
+    if find_first_byte(bytes, b'%').is_none() {
         return Cow::Borrowed(input);
     }
     // Decode valid %XX sequences, pass through invalid ones,
     // then use from_utf8_lossy for final UTF-8 fixup.
-    let raw = do_decode_to_bytes(input.as_bytes());
+    let raw = do_decode_to_bytes(bytes);
     match String::from_utf8(raw) {
         Ok(s) => Cow::Owned(s),
         Err(e) => {
@@ -103,11 +118,12 @@ pub fn decode(input: &str) -> Cow<'_, str> {
 /// assert!(decode_strict("hello%GG").is_err());
 /// ```
 pub fn decode_strict(input: &str) -> Result<Cow<'_, str>, DecodeError> {
-    if !needs_decoding(input.as_bytes()) {
+    let bytes = input.as_bytes();
+    if find_first_byte(bytes, b'%').is_none() {
         return Ok(Cow::Borrowed(input));
     }
-    let bytes = do_decode_strict(input.as_bytes())?;
-    match String::from_utf8(bytes) {
+    let decoded = do_decode_strict(bytes)?;
+    match String::from_utf8(decoded) {
         Ok(s) => Ok(Cow::Owned(s)),
         Err(e) => {
             let pos = e.utf8_error().valid_up_to();
@@ -131,10 +147,11 @@ pub fn decode_strict(input: &str) -> Result<Cow<'_, str>, DecodeError> {
 /// assert_eq!(decode_passthrough("50%GG"), "50%GG"); // invalid → left as-is
 /// ```
 pub fn decode_passthrough(input: &str) -> Cow<'_, str> {
-    if !needs_decoding(input.as_bytes()) {
+    let bytes = input.as_bytes();
+    if find_first_byte(bytes, b'%').is_none() {
         return Cow::Borrowed(input);
     }
-    let raw = do_decode_passthrough(input.as_bytes());
+    let raw = do_decode_passthrough(bytes);
     // Passthrough may produce non-UTF-8 if %XX sequences decode to
     // partial UTF-8 bytes. Use lossy conversion as a safety net.
     match String::from_utf8(raw) {
@@ -159,25 +176,23 @@ pub fn decode_passthrough(input: &str) -> Cow<'_, str> {
 /// assert_eq!(&*decoded, b"hello world");
 /// ```
 pub fn decode_bytes(input: &str) -> Cow<'_, [u8]> {
-    if !needs_decoding(input.as_bytes()) {
-        return Cow::Borrowed(input.as_bytes());
+    let bytes = input.as_bytes();
+    if find_first_byte(bytes, b'%').is_none() {
+        return Cow::Borrowed(bytes);
     }
-    Cow::Owned(do_decode_to_bytes(input.as_bytes()))
+    Cow::Owned(do_decode_to_bytes(bytes))
 }
 
 // ── Internal helpers ───────────────────────────────────────────────
-
-fn needs_decoding(input: &[u8]) -> bool {
-    input.contains(&b'%')
-}
 
 /// Strict decode: returns error on any invalid sequence.
 fn do_decode_strict(input: &[u8]) -> Result<Vec<u8>, DecodeError> {
     let mut out = Vec::with_capacity(input.len());
     let mut i = 0;
-    while i < input.len() {
+    let len = input.len();
+    while i < len {
         if input[i] == b'%' {
-            if i + 2 >= input.len() {
+            if i + 2 >= len {
                 return Err(DecodeError::TruncatedSequence { position: i });
             }
             if !is_hex(input[i + 1]) || !is_hex(input[i + 2]) {
@@ -198,9 +213,10 @@ fn do_decode_strict(input: &[u8]) -> Result<Vec<u8>, DecodeError> {
 fn do_decode_passthrough(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len());
     let mut i = 0;
-    while i < input.len() {
+    let len = input.len();
+    while i < len {
         if input[i] == b'%' {
-            if i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
+            if i + 2 < len && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
                 let byte = (hex_val(input[i + 1]) << 4) | hex_val(input[i + 2]);
                 out.push(byte);
                 i += 3;
@@ -222,8 +238,9 @@ fn do_decode_passthrough(input: &[u8]) -> Vec<u8> {
 fn do_decode_to_bytes(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len());
     let mut i = 0;
-    while i < input.len() {
-        if input[i] == b'%' && i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
+    let len = input.len();
+    while i < len {
+        if input[i] == b'%' && i + 2 < len && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
             let byte = (hex_val(input[i + 1]) << 4) | hex_val(input[i + 2]);
             out.push(byte);
             i += 3;
@@ -305,5 +322,17 @@ mod tests {
         // %GG is invalid → lossy handles it gracefully
         let result = decode("test%GG");
         assert!(result.contains("test"));
+    }
+
+    #[test]
+    fn decode_long_no_pct_noop() {
+        // Long input with no % should hit the SIMD fast path and return
+        // Cow::Borrowed.
+        let input = "the quick brown fox jumps over the lazy dog \
+                     the quick brown fox jumps over the lazy dog \
+                     the quick brown fox jumps over the lazy dog";
+        let result = decode(input);
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(&*result, input);
     }
 }

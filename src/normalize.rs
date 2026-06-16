@@ -1,8 +1,22 @@
+//! Percent-encoding normalization and validation.
+//!
+//! [`normalize()`] requires the `alloc` feature because it may produce
+//! an owned `String` when the input is not already in canonical form.
+//!
+//! [`is_valid()`] lives in the [`crate::scan`] module and is always
+//! available, even without `alloc`.
+
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::encode::{hex_val, is_hex, HEX_UPPER};
+use crate::hex::{hex_val, is_hex, HEX_UPPER};
+
+// `is_valid` lives in the `scan` module (always available, even without
+// `alloc`) and is re-exported from the crate root. It is also used by
+// the tests in this module.
+#[cfg(test)]
+use crate::scan::is_valid;
 
 /// Normalise a percent-encoded string to its canonical form.
 ///
@@ -31,40 +45,6 @@ pub fn normalize(input: &str) -> Cow<'_, str> {
     Cow::Owned(do_normalize(bytes))
 }
 
-/// Returns `true` if the string is valid percent-encoding.
-///
-/// Every `%` must be followed by two hex digits. No other validation
-/// (e.g. UTF-8 correctness) is performed.
-///
-/// # Examples
-///
-/// ```
-/// use pct::is_valid;
-///
-/// assert!(is_valid("hello%20world"));
-/// assert!(!is_valid("hello%GG"));
-/// assert!(!is_valid("hello%2"));
-/// assert!(is_valid("no-encoding"));
-/// ```
-pub fn is_valid(input: &str) -> bool {
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            if i + 2 >= bytes.len() {
-                return false;
-            }
-            if !is_hex(bytes[i + 1]) || !is_hex(bytes[i + 2]) {
-                return false;
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    true
-}
-
 // ── Internal helpers ───────────────────────────────────────────────
 
 /// Check whether the input needs any normalisation:
@@ -72,9 +52,10 @@ pub fn is_valid(input: &str) -> bool {
 ///   - encoded unreserved characters
 fn needs_normalization(input: &[u8]) -> bool {
     let mut i = 0;
-    while i < input.len() {
+    let len = input.len();
+    while i < len {
         if input[i] == b'%' {
-            if i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
+            if i + 2 < len && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
                 // Check for lowercase hex
                 if input[i + 1].is_ascii_lowercase() || input[i + 2].is_ascii_lowercase() {
                     return true;
@@ -98,8 +79,9 @@ fn needs_normalization(input: &[u8]) -> bool {
 fn do_normalize(input: &[u8]) -> String {
     let mut out = Vec::with_capacity(input.len());
     let mut i = 0;
-    while i < input.len() {
-        if input[i] == b'%' && i + 2 < input.len() && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
+    let len = input.len();
+    while i < len {
+        if input[i] == b'%' && i + 2 < len && is_hex(input[i + 1]) && is_hex(input[i + 2]) {
             let decoded = (hex_val(input[i + 1]) << 4) | hex_val(input[i + 2]);
             if is_unreserved(decoded) {
                 out.push(decoded);
@@ -122,7 +104,10 @@ fn do_normalize(input: &[u8]) -> String {
 /// RFC 3986 unreserved characters: A-Z, a-z, 0-9, '-', '.', '_', '~'.
 #[inline]
 fn is_unreserved(byte: u8) -> bool {
-    matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~')
+    matches!(
+        byte,
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~'
+    )
 }
 
 #[cfg(test)]

@@ -1,7 +1,14 @@
+//! IRI → URI encoding (internationalized resource identifiers).
+//!
+//! Requires both the `alloc` and `iri` features. An IRI can contain
+//! non-ASCII characters directly (e.g. `café`); this module
+//! percent-encodes the UTF-8 bytes of any non-ASCII character to produce
+//! a valid URI that only contains ASCII.
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::encode::HEX_UPPER;
+use crate::hex::HEX_UPPER;
 
 /// Encode an IRI (Internationalized Resource Identifier) to a valid URI.
 ///
@@ -25,10 +32,11 @@ use crate::encode::HEX_UPPER;
 /// assert_eq!(encode_iri("abc123-._~"), "abc123-._~");
 /// ```
 pub fn encode_iri(input: &str) -> String {
-    let mut out = Vec::with_capacity(input.len());
     let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() * 3);
     let mut i = 0;
-    while i < bytes.len() {
+    let len = bytes.len();
+    while i < len {
         let byte = bytes[i];
         if byte < 0x80 {
             // ASCII byte
@@ -44,7 +52,7 @@ pub fn encode_iri(input: &str) -> String {
             // Non-ASCII: encode all bytes of the UTF-8 sequence
             let seq_len = utf8_seq_len(byte);
             for j in 0..seq_len {
-                if i + j < bytes.len() {
+                if i + j < len {
                     let b = bytes[i + j];
                     out.push(b'%');
                     out.push(HEX_UPPER[(b >> 4) as usize]);
@@ -61,7 +69,10 @@ pub fn encode_iri(input: &str) -> String {
 /// RFC 3986 unreserved characters: A-Z, a-z, 0-9, '-', '.', '_', '~'.
 #[inline]
 fn is_unreserved(byte: u8) -> bool {
-    matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~')
+    matches!(
+        byte,
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~'
+    )
 }
 
 /// Determine the length of a UTF-8 sequence from its leading byte.

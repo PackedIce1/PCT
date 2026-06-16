@@ -1,8 +1,18 @@
 //! `pct` — Percent-encoding and decoding for URLs.
 //!
-//! A pure-Rust, zero-dependency, `no_std` + `alloc` crate that fixes the
-//! common pain points of the `percent-encoding` crate:
+//! A pure-Rust, zero-dependency crate with:
 //!
+//! - **Optional allocation** (`alloc` feature, on by default). Disable
+//!   default features to use only the allocation-free core (`EncodeSet`,
+//!   `is_valid`, scanning, length pre-computation) — useful in kernels
+//!   and embedded targets without a heap.
+//! - **Optional SIMD acceleration** (`simd` feature, requires nightly
+//!   Rust via `#![feature(portable_simd)]`). Accelerates the no-op
+//!   fast path so already-canonical inputs are scanned at 32 bytes per
+//!   cycle on AVX2 / NEON targets.
+//! - **`Cow`-based zero-allocation API** — when scanning determines no
+//!   encoding/decoding is needed, the input is returned as
+//!   `Cow::Borrowed` without ever touching the heap.
 //! - **Issue #503 fixed** — bare `%` is encoded as `%25` by default
 //!   (idempotent encoding skips already-valid `%XX` sequences).
 //! - **Issues #416 / #482 fixed** — `+` is properly encoded as `%2B` in
@@ -37,38 +47,108 @@
 //! assert_eq!(encode_form("hello world"), "hello+world");
 //! assert_eq!(decode_form("hello+world"), "hello world");
 //! ```
+//!
+//! # `no_std` without `alloc`
+//!
+//! For environments without a heap (kernels, microcontrollers, boot
+//! loaders), disable default features:
+//!
+//! ```toml
+//! [dependencies]
+//! pct = { version = "0.2", default-features = false }
+//! ```
+//!
+//! The following APIs remain available without `alloc`:
+//!
+//! - [`EncodeSet`] and all predefined constants (`COMPONENT`, `PATH`, …)
+//! - [`is_hex()`], [`hex_val()`], [`HEX_UPPER`], [`HEX_LOWER`]
+//! - [`is_valid()`]
+//! - [`find_first_byte()`], [`find_first_byte_raw()`],
+//!   [`find_first_byte_idempotent()`]
+//! - [`needs_encoding_raw()`], [`needs_encoding_idempotent()`]
+//! - [`encoded_len_raw()`], [`encoded_len_idempotent()`]
+//!
+//! # SIMD acceleration
+//!
+//! Enable the `simd` feature on nightly Rust:
+//!
+//! ```toml
+//! [dependencies]
+//! pct = { version = "0.2", features = ["simd"] }
+//! ```
+//!
+//! This enables `#![feature(portable_simd)]` internally and dispatches
+//! the no-op fast path to `core::simd`-accelerated implementations.
+//! Already-canonical inputs (the common case for valid URLs) are
+//! scanned 32 bytes per cycle on AVX2 / NEON targets, bringing the
+//! no-op cost close to the ~1.4 ns achieved by the `percent-encoding`
+//! crate.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(feature = "simd", feature(portable_simd))]
 #![forbid(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs, clippy::doc_markdown)]
 
+// `alloc` is only needed when the `alloc` (or `std`) feature is enabled.
+// Without it, only the scanning/validation/EncodeSet APIs are available.
+#[cfg(any(feature = "alloc", feature = "std"))]
 extern crate alloc;
 
-mod decode;
-mod encode;
-mod form;
-mod normalize;
+// ── Always-available modules ────────────────────────────────────────
+
+mod hex;
+mod scan;
 mod set;
 
-#[cfg(feature = "iri")]
+#[cfg(feature = "simd")]
+mod simd;
+
+// ── Alloc-gated modules ─────────────────────────────────────────────
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod encode;
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod decode;
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod form;
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod normalize;
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "iri"))]
 mod iri;
 
-// ── Re-exports ─────────────────────────────────────────────────────
+// ── Re-exports: always available ────────────────────────────────────
 
-pub use decode::{decode, decode_bytes, decode_passthrough, decode_strict, DecodeError};
-pub use encode::{encode, encode_bytes, encode_raw, encode_with};
-pub use form::{decode_form, encode_form, encode_form_bytes};
-pub use normalize::{is_valid, normalize};
+pub use hex::{hex_val, is_hex, is_hex_lower, decode_hex_pair, HEX_LOWER, HEX_UPPER};
+pub use scan::{
+    encoded_len_idempotent, encoded_len_raw, find_first_byte, find_first_byte_idempotent,
+    find_first_byte_raw, is_valid, is_valid_bytes, needs_encoding_idempotent,
+    needs_encoding_raw,
+};
 pub use set::EncodeSet;
 
-#[cfg(feature = "iri")]
+// ── Re-exports: alloc-gated ─────────────────────────────────────────
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use decode::{decode, decode_bytes, decode_passthrough, decode_strict, DecodeError};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use encode::{encode, encode_bytes, encode_raw, encode_with};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use form::{decode_form, encode_form, encode_form_bytes};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use normalize::normalize;
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "iri"))]
 pub use iri::encode_iri;
 
+// ── Alloc-gated convenience APIs ────────────────────────────────────
+
+#[cfg(any(feature = "alloc", feature = "std"))]
 use alloc::borrow::Cow;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use core::fmt;
 
-// ── Convenience functions ──────────────────────────────────────────
-
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// Percent-encode a string for a URL **path segment**.
 ///
 /// Uses the [`PATH`](EncodeSet::PATH) set (keeps `/` unencoded) with
@@ -77,6 +157,7 @@ pub fn encode_for_path(input: &str) -> Cow<'_, str> {
     encode_with(input, &EncodeSet::PATH)
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// Percent-encode a string for a URL **query string** (full string).
 ///
 /// Uses the [`QUERY`](EncodeSet::QUERY) set (keeps `?`, `=`, `&`
@@ -86,6 +167,7 @@ pub fn encode_for_query(input: &str) -> Cow<'_, str> {
     encode_with(input, &EncodeSet::QUERY)
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// Percent-encode a string for a URL **fragment**.
 ///
 /// Uses the [`FRAGMENT`](EncodeSet::FRAGMENT) set with idempotent
@@ -94,6 +176,7 @@ pub fn encode_for_fragment(input: &str) -> Cow<'_, str> {
     encode_with(input, &EncodeSet::FRAGMENT)
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// Percent-encode a string for an isolated URL **component**.
 ///
 /// This is an alias for [`encode()`] — uses the
@@ -105,6 +188,7 @@ pub fn encode_for_component(input: &str) -> Cow<'_, str> {
 
 // ── Display wrapper ────────────────────────────────────────────────
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// A wrapper that percent-encodes a string when formatted with
 /// [`Display`](fmt::Display).
 ///
@@ -120,6 +204,7 @@ pub fn encode_for_component(input: &str) -> Cow<'_, str> {
 /// ```
 pub struct Encoded<'a>(pub &'a str);
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl fmt::Display for Encoded<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let encoded = encode(self.0);
@@ -129,6 +214,7 @@ impl fmt::Display for Encoded<'_> {
 
 // ── Trait ──────────────────────────────────────────────────────────
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 /// Extension trait for percent-encoding/decoding on `&str`.
 ///
 /// # Examples
@@ -147,6 +233,7 @@ pub trait PercentEncode {
     fn percent_decode(&self) -> Cow<'_, str>;
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl PercentEncode for str {
     fn percent_encode(&self) -> Cow<'_, str> {
         encode(self)
@@ -159,7 +246,7 @@ impl PercentEncode for str {
 
 // ── Integration tests ──────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "alloc", feature = "std")))]
 mod tests {
     use super::*;
     use alloc::format;
@@ -250,5 +337,19 @@ mod tests {
         let encoded = encode_bytes(data, &EncodeSet::COMPONENT);
         let decoded = decode_bytes(&encoded);
         assert_eq!(&*decoded, data);
+    }
+
+    // ── no-alloc core API still works with alloc enabled ──────
+
+    #[test]
+    fn scan_apis_work() {
+        let set = EncodeSet::COMPONENT;
+        assert!(!needs_encoding_raw(b"hello", &set));
+        assert!(needs_encoding_raw(b"hello world", &set));
+        assert!(!needs_encoding_idempotent(b"foo%20bar", &set));
+        assert!(needs_encoding_idempotent(b"100%", &set));
+
+        assert_eq!(encoded_len_raw(b"hello world", &set, false), 5 + 3 + 5);
+        assert_eq!(encoded_len_idempotent(b"foo%20bar", &set), 9);
     }
 }
