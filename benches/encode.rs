@@ -25,10 +25,7 @@ fn bench_encode_noop(c: &mut Criterion) {
     });
     group.bench_function("percent-encoding (lazy iter, consumed)", |b| {
         use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-        b.iter(|| {
-            utf8_percent_encode(black_box(input), &NON_ALPHANUMERIC)
-                .collect::<String>()
-        })
+        b.iter(|| utf8_percent_encode(black_box(input), &NON_ALPHANUMERIC).collect::<String>())
     });
     group.bench_function("urlencoding", |b| {
         b.iter(|| urlencoding::encode(black_box(input)))
