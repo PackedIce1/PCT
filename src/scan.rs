@@ -34,7 +34,7 @@ use crate::set::EncodeSet;
 pub fn find_first_byte(input: &[u8], byte: u8) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        crate::simd::find_first_byte_simd(input, byte);
+        crate::simd::find_first_byte_simd(input, byte)
     }
     #[cfg(not(feature = "simd"))]
     {
@@ -74,7 +74,7 @@ pub(crate) fn find_first_byte_scalar(input: &[u8], byte: u8) -> Option<usize> {
 pub fn find_first_byte_idempotent(input: &[u8], set: &EncodeSet) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        crate::simd::find_first_byte_idempotent_simd(input, set);
+        crate::simd::find_first_byte_idempotent_simd(input, set)
     }
     #[cfg(not(feature = "simd"))]
     {
@@ -136,7 +136,7 @@ pub fn needs_encoding_idempotent(input: &[u8], set: &EncodeSet) -> bool {
 pub fn find_first_byte_raw(input: &[u8], set: &EncodeSet) -> Option<usize> {
     #[cfg(feature = "simd")]
     {
-        crate::simd::find_first_byte_raw_simd(input, set);
+        crate::simd::find_first_byte_raw_simd(input, set)
     }
     #[cfg(not(feature = "simd"))]
     {
