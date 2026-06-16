@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use pct::{encode, encode_with, encode_raw, EncodeSet};
+use pct::{encode, encode_raw, encode_with, EncodeSet};
 
 fn bench_encode_short(c: &mut Criterion) {
     let input = "hello world";
