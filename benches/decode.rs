@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use pct::{decode, decode_strict, decode_passthrough};
+use pct::{decode, decode_passthrough, decode_strict};
 
 fn bench_decode_short(c: &mut Criterion) {
     let input = "hello%20world";
@@ -17,7 +17,8 @@ fn bench_decode_short(c: &mut Criterion) {
 }
 
 fn bench_decode_long(c: &mut Criterion) {
-    let input = "the%20quick%20brown%20fox%20jumps%20over%20the%20lazy%20dog%20%2Fpath%3Fquery%3Dvalue";
+    let input =
+        "the%20quick%20brown%20fox%20jumps%20over%20the%20lazy%20dog%20%2Fpath%3Fquery%3Dvalue";
 
     let mut group = c.benchmark_group("decode_long");
     group.bench_function("pct::decode", |b| b.iter(|| decode(black_box(input))));
@@ -36,9 +37,7 @@ fn bench_decode_modes(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("decode_modes");
     group.bench_function("lossy", |b| b.iter(|| decode(black_box(input))));
-    group.bench_function("strict", |b| {
-        b.iter(|| decode_strict(black_box(input)))
-    });
+    group.bench_function("strict", |b| b.iter(|| decode_strict(black_box(input))));
     group.bench_function("passthrough", |b| {
         b.iter(|| decode_passthrough(black_box(input)))
     });
