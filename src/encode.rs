@@ -253,10 +253,7 @@ mod tests {
 
     #[test]
     fn encode_with_path_set() {
-        assert_eq!(
-            encode_with("a/b c", &EncodeSet::PATH),
-            "a/b%20c"
-        );
+        assert_eq!(encode_with("a/b c", &EncodeSet::PATH), "a/b%20c");
     }
 
     #[test]
