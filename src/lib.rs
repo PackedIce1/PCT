@@ -415,6 +415,8 @@ impl PercentEncode for str {
 mod tests {
     use super::*;
     use alloc::format;
+    use alloc::string::String;
+    use alloc::vec::Vec;
 
     #[test]
     fn convenience_path() {
