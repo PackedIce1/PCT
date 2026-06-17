@@ -313,16 +313,42 @@ impl Iterator for DecodedChars<'_> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // Conservative bounds: at minimum, every 3 bytes of input produce
-        // at most 1 character (for %XX), and at least 1 character (for
-        // plain ASCII).
+        // Conservative bounds.
+        //
+        // Each remaining input byte yields at most 1 decoded char — except
+        // that a complete `%XX` sequence consumes 3 input bytes while
+        // producing at most 1 char (vs. 1 char per passthrough byte). So
+        // for the upper bound we subtract 2 per `%XX` sequence found in
+        // the remaining input.
+        //
+        // For the lower bound, the worst case is every 3 bytes forming a
+        // `%XX` that yields exactly 1 char, so `remaining / 3`.
         let remaining = self.input.len() - self.pos;
+
+        // Count complete, valid `%XX` sequences in the remaining input.
+        // We deliberately mirror the acceptance criteria used by `next()`:
+        // `%` followed by two hex digits. Truncated or invalid sequences
+        // are treated as passthrough for hint purposes (they yield one
+        // `U+FFFD` from the lone `%`, which is still 1 char per byte).
+        let mut i = self.pos;
+        let mut pct_count = 0;
+        while i + 2 < self.input.len() {
+            if self.input[i] == b'%'
+                && is_hex(self.input[i + 1])
+                && is_hex(self.input[i + 2])
+                {
+                    pct_count += 1;
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+        }
+
         let min = remaining / 3;
-        let max = Some(remaining);
-        (min, max)
+        let max = remaining - 2 * pct_count;
+        (min, Some(max))
     }
 }
-
 impl FusedIterator for DecodedChars<'_> {}
 
 impl core::fmt::Debug for DecodedChars<'_> {
