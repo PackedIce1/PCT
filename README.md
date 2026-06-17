@@ -1,13 +1,17 @@
 # pct
 
-Percent-encoding and decoding for URLs — pure Rust, zero dependencies, `no_std` with **optional** `alloc`, **optional** SIMD, zero-allocation `Cow` API.
+Percent-encoding and decoding for URLs — pure Rust, zero dependencies, `no_std` with **optional** `alloc`, **optional** SIMD, zero-allocation `Cow` API, compile-time encoding, streaming iterators, and explicit mode API.
 
 A modern alternative to the `percent-encoding` crate that fixes its long-standing pain points, adds competitive performance via SIMD, and runs in environments no other percent-encoding crate can (kernels, bootloaders, microcontrollers without a heap).
 
-## What's new in 0.2
+## What's new in 0.3
 
-- **`alloc` is now optional.** Disable default features to use only the allocation-free core (`EncodeSet`, `is_valid`, scanning, length pre-computation) in `no_std` environments without a heap. The full `Cow`-returning API is still available by default.
-- **SIMD acceleration** via `core::simd` (nightly `portable_simd`). The no-op fast path scans 32 bytes per cycle on AVX2 / NEON targets, bringing the "already-canonical input" cost close to the ~1.4 ns achieved by `percent-encoding`.
+- **Compile-time encoding** — `const_encode!("Hello World")` produces `"Hello%20World"` at compile time with **0 ns runtime cost**. The encoded string is embedded directly in the binary.
+- **Streaming/iterator API** — `EncodedBytes` and `DecodedChars` yield encoded bytes or decoded characters one at a time with **zero heap allocation**, enabling processing of massive files without loading them into RAM.
+- **Explicit mode API** — `Pct::encode_rfc3986()`, `Pct::encode_whatwg()`, `Pct::encode_html_form()` make the encoding standard unambiguous, preventing bugs from applying the wrong type of encoding.
+- **WHATWG URL Standard encode set** — New `EncodeSet::WHATWG` preserves URL code points like `!`, `'`, `(`, `)`, `*`, `+`, matching browser behaviour.
+- **`alloc` is optional.** Disable default features to use only the allocation-free core (`EncodeSet`, `is_valid`, scanning, length pre-computation) in `no_std` environments without a heap. The full `Cow`-returning API is still available by default.
+- **SIMD acceleration** via `core::simd` (nightly `portable_simd`). The no-op fast path scans 32 bytes per cycle on AVX2 / NEON targets, bringing the "already-canonical input" cost close to the ~1.4 ns achieved by the `percent-encoding` crate.
 - **Tighter `Cow` fast path.** All `encode`/`decode` entry points now route through a shared SIMD-accelerated scanner, so the `Cow::Borrowed` case is faster than ever.
 
 ## Why `pct`?
@@ -18,12 +22,15 @@ The `percent-encoding` crate is widely used but has several well-known issues th
 |-------|--------------------|-------|
 | [#503](https://github.com/servo/rust-url/issues/503) — bare `%` not encoded | `%` is left as-is → broken round-trips | `encode("100%")` → `"100%25"` |
 | [#416](https://github.com/servo/rust-url/issues/416) / [#482](https://github.com/servo/rust-url/issues/482) — `+` ambiguity | `+` is not encoded; no form-urlencoded support | `encode("a+b")` → `"a%2Bb"`; dedicated `encode_form`/`decode_form` |
-| Few predefined sets | Only `CONTROLS` and `NON_ALPHANUMERIC` | `COMPONENT`, `PATH`, `QUERY`, `FRAGMENT`, `CONTROLS`, `NON_ALPHANUMERIC` |
+| Few predefined sets | Only `CONTROLS` and `NON_ALPHANUMERIC` | `COMPONENT`, `PATH`, `QUERY`, `FRAGMENT`, `CONTROLS`, `NON_ALPHANUMERIC`, `WHATWG` |
 | No form-urlencoded support | Requires a separate crate | Built-in `encode_form` / `decode_form` |
 | No binary data support | Requires low-level API | `encode_bytes(&[u8])` works directly |
 | Idempotent encoding | Double-encoding is easy | `encode("foo%20bar")` is a no-op |
 | `alloc` required | Always allocates | `alloc` is **optional** — core API works in kernels/embedded |
 | SIMD acceleration | None | Optional `simd` feature via `core::simd` |
+| No compile-time encoding | Runtime only | `const_encode!("Hello")` → `"Hello"` at 0 ns |
+| No streaming API | Returns `String` | `EncodedBytes` / `DecodedChars` — zero-allocation iterators |
+| Ambiguous "URL encoding" | Users must know which function | `Pct::encode_rfc3986()` / `Pct::encode_whatwg()` / `Pct::encode_html_form()` |
 
 ## Quick start
 
@@ -53,25 +60,102 @@ assert_eq!(encode_form("a+b"), "a%2Bb");          // literal + → %2B
 | `iri`     | ❌ off  | Enables `encode_iri()` for internationalized resource identifiers. Implies `alloc`. |
 | `simd`    | ❌ off  | SIMD acceleration via `core::simd` (requires nightly Rust). Independent of `alloc`. |
 
+### Compile-time encoding
+
+Encode strings at compile time with **zero runtime cost**:
+
+```rust
+use pct::const_encode;
+
+const ENCODED: &str = const_encode!("Hello World");
+assert_eq!(ENCODED, "Hello%20World");
+
+// Custom encode set
+const PATH: &str = const_encode!("a/b c", &pct::EncodeSet::PATH);
+assert_eq!(PATH, "a/b%20c");
+
+// UTF-8 input
+const UNICODE: &str = const_encode!("café");
+assert_eq!(UNICODE, "caf%C3%A9");
+```
+
+The input is limited to 1024 bytes (`MAX_CONST_INPUT_LEN`). The encoded result is embedded directly in the binary as a `&'static str`.
+
+### Streaming / zero-allocation iterators
+
+Process massive inputs without loading them into RAM:
+
+```rust
+use pct::{EncodedBytes, DecodedChars, EncodeSet};
+
+// Encode byte-by-byte — zero heap allocation
+let mut encoder = EncodedBytes::new("hello world", &EncodeSet::COMPONENT);
+let encoded: Vec<u8> = encoder.collect();
+assert_eq!(String::from_utf8(encoded).unwrap(), "hello%20world");
+
+// Decode char-by-char — zero heap allocation, handles multi-byte UTF-8
+let mut decoder = DecodedChars::new("caf%C3%A9");
+assert_eq!(decoder.next(), Some('c'));
+assert_eq!(decoder.next(), Some('a'));
+assert_eq!(decoder.next(), Some('f'));
+assert_eq!(decoder.next(), Some('é'));
+assert_eq!(decoder.next(), None);
+```
+
+Both iterators work in `#![no_std]` without `alloc`.
+
+### Explicit mode API
+
+Make the encoding standard unambiguous with `Pct`:
+
+```rust
+use pct::Pct;
+
+// RFC 3986: strict, for URI components (space → %20, + → %2B)
+assert_eq!(Pct::encode_rfc3986("hello world"), "hello%20world");
+assert_eq!(Pct::encode_rfc3986("a+b"), "a%2Bb");
+
+// WHATWG URL Standard: more permissive (allows !, ', (, ), *, +, etc.)
+assert_eq!(Pct::encode_whatwg("keep'safe"), "keep'safe");
+assert_eq!(Pct::encode_whatwg("a+b"), "a+b");
+
+// HTML Form: space → +, literal + → %2B
+assert_eq!(Pct::encode_html_form("hello world"), "hello+world");
+assert_eq!(Pct::encode_html_form("a+b"), "a%2Bb");
+
+// Decoding modes too
+assert_eq!(Pct::decode_rfc3986("hello%20world"), "hello world");
+assert_eq!(Pct::decode_html_form("hello+world"), "hello world");
+```
+
+| Context | Method | Space | `+` sign |
+|---------|--------|-------|----------|
+| URL path / component | `Pct::encode_rfc3986()` | `%20` | `%2B` |
+| WHATWG URL parsing | `Pct::encode_whatwg()` | `%20` | passed through |
+| HTML `<form>` submission | `Pct::encode_html_form()` | `+` | `%2B` |
+
 ### `no_std` without `alloc`
 
 For environments without a heap (kernels, microcontrollers, boot loaders):
 
 ```toml
 [dependencies]
-pct = { version = "0.2", default-features = false }
+pct = { version = "0.3", default-features = false }
 ```
 
 The following APIs remain available without `alloc`:
 
-- `EncodeSet` and all predefined constants (`COMPONENT`, `PATH`, `QUERY`, `FRAGMENT`, `CONTROLS`, `NON_ALPHANUMERIC`)
+- `EncodeSet` and all predefined constants (`COMPONENT`, `PATH`, `QUERY`, `FRAGMENT`, `CONTROLS`, `NON_ALPHANUMERIC`, `WHATWG`)
 - `is_hex()`, `hex_val()`, `HEX_UPPER`, `HEX_LOWER`
 - `is_valid()`, `is_valid_bytes()`
 - `find_first_byte()`, `find_first_byte_raw()`, `find_first_byte_idempotent()`
 - `needs_encoding_raw()`, `needs_encoding_idempotent()`
 - `encoded_len_raw()`, `encoded_len_idempotent()`
+- `EncodedBytes`, `DecodedChars` (streaming iterators)
+- `const_encode_to_buf()`, `const_encoded_len()` (const helpers)
+- `const_encode!` (compile-time encoding macro)
 
-You can use these to pre-validate input, compute output buffer sizes, or write your own encoding into a fixed-size buffer — all without touching the heap.
+You can use these to pre-validate input, compute output buffer sizes, stream-encode/decode data, or write your own encoding into a fixed-size buffer — all without touching the heap.
 
 ### SIMD acceleration
 
@@ -79,7 +163,7 @@ Enable on nightly Rust:
 
 ```toml
 [dependencies]
-pct = { version = "0.2", features = ["simd"] }
+pct = { version = "0.3", features = ["simd"] }
 ```
 
 This enables `#![feature(portable_simd)]` internally and dispatches the no-op fast path to `core::simd`-accelerated implementations. Already-canonical inputs (the common case for valid URLs) are scanned 32 bytes per cycle on AVX2 / NEON targets, bringing the no-op cost close to the ~1.4 ns achieved by the `percent-encoding` crate.
@@ -202,7 +286,7 @@ Enable the `iri` feature to encode non-ASCII characters in IRIs to valid URI per
 
 ```toml
 [dependencies]
-pct = { version = "0.2", features = ["iri"] }
+pct = { version = "0.3", features = ["iri"] }
 ```
 
 ```rust
@@ -236,12 +320,16 @@ assert!(!MY_SET.contains(b'/'));
 | Idempotent encoding | ✅ | ❌ | ❌ |
 | Form-urlencoded built-in | ✅ | ❌ | ❌ |
 | Binary data support | ✅ | Partial | Partial |
-| Predefined context sets | 6 | 2 | 0 |
+| Predefined context sets | 7 | 2 | 0 |
 | Multiple decode modes | 3 + bytes | 1 | 1 |
 | Normalization | ✅ | ❌ | ❌ |
 | Validation | ✅ | ❌ | ❌ |
 | `Cow` zero-alloc path | ✅ | ✅ (iterator) | ❌ |
 | IRI support | ✅ (opt-in) | ❌ | ❌ |
+| Compile-time encoding | ✅ (`const_encode!`) | ❌ | ❌ |
+| Streaming iterators | ✅ (`EncodedBytes` / `DecodedChars`) | ✅ (lazy iterator) | ❌ |
+| Explicit mode API | ✅ (`Pct`) | ❌ | ❌ |
+| WHATWG encode set | ✅ (`EncodeSet::WHATWG`) | ❌ | ❌ |
 
 ## License
 
