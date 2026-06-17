@@ -71,7 +71,7 @@ pub const fn const_encode_to_buf(input: &[u8], set: &EncodeSet, buf: &mut [u8]) 
 /// use pct::{const_encoded_len, EncodeSet};
 ///
 /// const INPUT: &[u8] = b"hello world";
-/// assert_eq!(const_encoded_len(INPUT, &EncodeSet::COMPONENT), 15); // 5 + 3 + 5 + 2
+/// assert_eq!(const_encoded_len(INPUT, &EncodeSet::COMPONENT), 13); // 5 + 3 + 5
 /// ```
 pub const fn const_encoded_len(input: &[u8], set: &EncodeSet) -> usize {
     let mut len = 0;
