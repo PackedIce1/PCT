@@ -255,23 +255,38 @@ macro_rules! const_encode {
         $crate::const_encode!($input, &$crate::EncodeSet::COMPONENT)
     };
     ($input:expr, $set:expr) => {{
-        const fn pct_encode(
-            s: &[u8],
-            set: &$crate::EncodeSet,
-        ) -> ([u8; $crate::CONST_ENCODE_BUF_SIZE], usize) {
-            if s.len() > $crate::MAX_CONST_INPUT_LEN {
-                panic!(
-                    "const_encode! input exceeds maximum length of {} bytes (got {})",
-                    $crate::MAX_CONST_INPUT_LEN,
-                    s.len()
-                );
+        const INPUT: &str = $input;
+        const SET: &$crate::EncodeSet = $set;
+        const INPUT_BYTES: &[u8] = INPUT.as_bytes();
+
+        // Compile-time length check.
+        //
+        // NOTE: `panic!` with format arguments is not const-stable on
+        // stable Rust, so we use a plain literal message here. The exact
+        // limit is [`MAX_CONST_INPUT_LEN`](crate::MAX_CONST_INPUT_LEN).
+        const _: () = {
+            if INPUT_BYTES.len() > $crate::MAX_CONST_INPUT_LEN {
+                panic!("const_encode! input exceeds maximum length");
             }
-            let mut buf = [0u8; $crate::CONST_ENCODE_BUF_SIZE];
+        };
+
+        const ENCODED_LEN: usize = $crate::const_encoded_len(INPUT_BYTES, SET);
+
+        // Encode into a fixed-size array of exactly the encoded length.
+        //
+        // NOTE: We deliberately avoid slicing a max-sized buffer
+        // (`buf[..ENCODED_LEN]`) because range indexing is not yet
+        // const-stable on stable Rust — it requires the nightly-only
+        // `const_index` feature. By making the array exactly
+        // `ENCODED_LEN` bytes long, we can convert it to `&str` later
+        // without any slicing.
+        const BYTES: [u8; ENCODED_LEN] = {
+            let mut buf = [0u8; ENCODED_LEN];
             let mut i = 0;
             let mut o = 0;
-            while i < s.len() {
-                let b = s[i];
-                if set.contains(b) {
+            while i < INPUT_BYTES.len() {
+                let b = INPUT_BYTES[i];
+                if SET.contains(b) {
                     buf[o] = b'%';
                     buf[o + 1] = $crate::HEX_UPPER[(b >> 4) as usize];
                     buf[o + 2] = $crate::HEX_UPPER[(b & 0x0F) as usize];
@@ -282,30 +297,28 @@ macro_rules! const_encode {
                 }
                 i += 1;
             }
-            (buf, o)
-        }
+            buf
+        };
 
-        const INPUT: &str = $input;
-        const RESULT: ([u8; $crate::CONST_ENCODE_BUF_SIZE], usize) =
-            pct_encode(INPUT.as_bytes(), $set);
-        const ENCODED_LEN: usize = RESULT.1;
-
-        // SAFETY: The percent-encoding output is always valid ASCII/UTF-8
-        // because:
-        // 1. Unencoded bytes are copied from valid UTF-8 input.
-        // 2. Encoded bytes are percent sequences (%XX) which are ASCII.
-        const {
-            match core::str::from_utf8(&RESULT.0[..ENCODED_LEN]) {
-                Ok(s) => s,
-                Err(_) => {
-                    // This should never happen — the output is always ASCII.
-                    panic!("const_encode: internal error - output is not valid UTF-8")
-                }
+        // SAFETY: percent-encoding produces only ASCII bytes:
+        //   1. Unencoded bytes are copied from valid UTF-8 input.
+        //   2. Encoded bytes are `%XX` sequences, which are pure ASCII.
+        // ASCII is a strict subset of UTF-8, so the output is always
+        // valid UTF-8. We still call `from_utf8` so any encoder bug
+        // becomes a compile error rather than UB.
+        //
+        // NOTE: `BYTES.as_slice()` (const-stable since Rust 1.83) avoids
+        // the range-indexing operation that would otherwise require
+        // `const_index`.
+        const ENCODED: &str = match core::str::from_utf8(BYTES.as_slice()) {
+            Ok(s) => s,
+            Err(_) => {
+                panic!("const_encode: internal error - output is not valid UTF-8")
             }
-        }
+        };
+        ENCODED
     }};
 }
-
 // ── Alloc-gated convenience APIs ────────────────────────────────────
 
 #[cfg(any(feature = "alloc", feature = "std"))]
