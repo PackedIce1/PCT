@@ -161,6 +161,47 @@ impl EncodeSet {
     /// Use this when encoding a **full fragment** string where the `#`
     /// delimiter has already been stripped by a URL parser.
     pub const FRAGMENT: Self = Self::COMPONENT.remove(b'#');
+
+    /// Everything that is **not** a [WHATWG URL Standard "URL code point"].
+    ///
+    /// URL code points are: `A-Z a-z 0-9 ! $ & ' ( ) * + , - . / : ; = ? @ _ ~`.
+    ///
+    /// This set is **more permissive** than [`COMPONENT`](Self::COMPONENT) —
+    /// characters like `!`, `'`, `(`, `)`, `*`, `+`, `,`, `;`, `=`, `?`,
+    /// `@`, and `/` pass through unencoded. Only C0 controls, space,
+    /// `"`, `#`, `<`, `>`, `\`, `^`, `` ` ``, `{`, `|`, `}`, DEL, and
+    /// non-ASCII bytes are encoded.
+    ///
+    /// Use this when you want WHATWG-compatible encoding that preserves
+    /// common URL punctuation. This matches the behaviour of browsers'
+    /// `URL` constructor when setting properties like `pathname`.
+    ///
+    /// [WHATWG URL Standard "URL code point"]: https://url.spec.whatwg.org/#url-code-points
+    pub const WHATWG: Self = Self::new()
+        // C0 controls (0x00–0x1F) and space (0x20)
+        .add_range(0x00, 0x20)
+        // " (0x22) — not a URL code point
+        .add(0x22)
+        // # (0x23) — not a URL code point (handled as delimiter by the parser)
+        .add(0x23)
+        // < (0x3C)
+        .add(0x3C)
+        // > (0x3E)
+        .add(0x3E)
+        // \ (0x5C)
+        .add(0x5C)
+        // ^ (0x5E)
+        .add(0x5E)
+        // ` (0x60)
+        .add(0x60)
+        // { (0x7B) | (0x7C) } (0x7D)
+        .add(0x7B)
+        .add(0x7C)
+        .add(0x7D)
+        // DEL (0x7F)
+        .add(0x7F)
+        // Non-ASCII (0x80–0xFF)
+        .add_range(0x80, 0xFF);
 }
 
 impl fmt::Debug for EncodeSet {
@@ -298,5 +339,86 @@ mod tests {
         let bits = set.bits();
         // Space is byte 0x20 = 32, which is bit 32 in word 0.
         assert_eq!(bits[0] & (1u64 << 32), 1u64 << 32);
+    }
+
+    // ── WHATWG set tests ────────────────────────────────────────
+
+    #[test]
+    fn whatwg_allows_url_code_points() {
+        let set = EncodeSet::WHATWG;
+        // URL code points should NOT be in the WHATWG encode set
+        for b in b'A'..=b'Z' {
+            assert!(!set.contains(b), "WHATWG should not encode '{b}'");
+        }
+        for b in b'a'..=b'z' {
+            assert!(!set.contains(b), "WHATWG should not encode '{b}'");
+        }
+        for b in b'0'..=b'9' {
+            assert!(!set.contains(b), "WHATWG should not encode '{b}'");
+        }
+        // URL code point punctuation
+        assert!(!set.contains(b'!'));
+        assert!(!set.contains(b'$'));
+        assert!(!set.contains(b'&'));
+        assert!(!set.contains(b'\''));
+        assert!(!set.contains(b'('));
+        assert!(!set.contains(b')'));
+        assert!(!set.contains(b'*'));
+        assert!(!set.contains(b'+'));
+        assert!(!set.contains(b','));
+        assert!(!set.contains(b'-'));
+        assert!(!set.contains(b'.'));
+        assert!(!set.contains(b'/'));
+        assert!(!set.contains(b':'));
+        assert!(!set.contains(b';'));
+        assert!(!set.contains(b'='));
+        assert!(!set.contains(b'?'));
+        assert!(!set.contains(b'@'));
+        assert!(!set.contains(b'_'));
+        assert!(!set.contains(b'~'));
+    }
+
+    #[test]
+    fn whatwg_encodes_non_url_code_points() {
+        let set = EncodeSet::WHATWG;
+        // Non-URL-code-point characters should be encoded
+        assert!(set.contains(b' '));  // space
+        assert!(set.contains(b'"'));  // "
+        assert!(set.contains(b'#'));  // #
+        assert!(set.contains(b'<'));  // <
+        assert!(set.contains(b'>'));  // >
+        assert!(set.contains(b'\\')); // backslash
+        assert!(set.contains(b'^'));  // ^
+        assert!(set.contains(b'`'));  // backtick
+        assert!(set.contains(b'{'));  // {
+        assert!(set.contains(b'|'));  // |
+        assert!(set.contains(b'}'));  // }
+    }
+
+    #[test]
+    fn whatwg_vs_component_difference() {
+        let comp = EncodeSet::COMPONENT;
+        let whatwg = EncodeSet::WHATWG;
+        // These chars are in COMPONENT (encoded) but NOT in WHATWG (passed through)
+        assert!(comp.contains(b'!'));
+        assert!(!whatwg.contains(b'!'));
+        assert!(comp.contains(b'('));
+        assert!(!whatwg.contains(b'('));
+        assert!(comp.contains(b'+' ));
+        assert!(!whatwg.contains(b'+'));
+        assert!(comp.contains(b','));
+        assert!(!whatwg.contains(b','));
+        assert!(comp.contains(b'/'));
+        assert!(!whatwg.contains(b'/'));
+        assert!(comp.contains(b':'));
+        assert!(!whatwg.contains(b':'));
+        assert!(comp.contains(b';'));
+        assert!(!whatwg.contains(b';'));
+        assert!(comp.contains(b'='));
+        assert!(!whatwg.contains(b'='));
+        assert!(comp.contains(b'?'));
+        assert!(!whatwg.contains(b'?'));
+        assert!(comp.contains(b'@'));
+        assert!(!whatwg.contains(b'@'));
     }
 }

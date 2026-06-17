@@ -13,6 +13,16 @@
 //! - **`Cow`-based zero-allocation API** — when scanning determines no
 //!   encoding/decoding is needed, the input is returned as
 //!   `Cow::Borrowed` without ever touching the heap.
+//! - **Compile-time encoding** — [`const_encode!`] performs percent-encoding
+//!   at compile time with **zero runtime cost**. The encoded string is
+//!   embedded directly in the binary.
+//! - **Streaming/iterator API** — [`EncodedBytes`] and [`DecodedChars`]
+//!   yield encoded bytes or decoded characters one at a time with **zero
+//!   heap allocation**, enabling processing of massive inputs without
+//!   loading them into RAM.
+//! - **Explicit mode API** — [`Pct`] provides clearly-named methods for
+//!   RFC 3986, WHATWG URL Standard, and HTML Form encoding, preventing
+//!   bugs from applying the wrong type of encoding.
 //! - **Issue #503 fixed** — bare `%` is encoded as `%25` by default
 //!   (idempotent encoding skips already-valid `%XX` sequences).
 //! - **Issues #416 / #482 fixed** — `+` is properly encoded as `%2B` in
@@ -23,8 +33,8 @@
 //! - **Arbitrary binary data** — [`encode_bytes()`] works on `&[u8]`.
 //! - **Predefined context sets** — [`COMPONENT`](EncodeSet::COMPONENT),
 //!   [`PATH`](EncodeSet::PATH), [`QUERY`](EncodeSet::QUERY),
-//!   [`FRAGMENT`](EncodeSet::FRAGMENT) so you don't have to read the
-//!   spec yourself.
+//!   [`FRAGMENT`](EncodeSet::FRAGMENT), [`WHATWG`](EncodeSet::WHATWG)
+//!   so you don't have to read the spec yourself.
 //! - **Multiple decode strategies** — lossy, strict, and passthrough.
 //! - **Normalization** — canonical form with uppercase hex and decoded
 //!   unreserved characters.
@@ -48,6 +58,47 @@
 //! assert_eq!(decode_form("hello+world"), "hello world");
 //! ```
 //!
+//! # Compile-time encoding
+//!
+//! Use [`const_encode!`] to encode strings at compile time with **zero
+//! runtime cost**:
+//!
+//! ```
+//! use pct::const_encode;
+//!
+//! const ENCODED: &str = const_encode!("Hello World");
+//! assert_eq!(ENCODED, "Hello%20World");
+//! ```
+//!
+//! # Streaming / zero-allocation
+//!
+//! Use [`EncodedBytes`] and [`DecodedChars`] to process data incrementally
+//! without allocating:
+//!
+//! ```
+//! use pct::{EncodedBytes, DecodedChars, EncodeSet};
+//!
+//! // Encode byte-by-byte
+//! let mut encoder = EncodedBytes::new("hello world", &EncodeSet::COMPONENT);
+//! let encoded: Vec<u8> = encoder.collect();
+//!
+//! // Decode char-by-char
+//! let mut decoder = DecodedChars::new("hello%20world");
+//! let decoded: String = decoder.collect();
+//! ```
+//!
+//! # Explicit modes
+//!
+//! Use [`Pct`] to make the encoding standard unambiguous:
+//!
+//! ```
+//! use pct::Pct;
+//!
+//! assert_eq!(Pct::encode_rfc3986("hello world"), "hello%20world");
+//! assert_eq!(Pct::encode_whatwg("keep'safe"), "keep'safe");
+//! assert_eq!(Pct::encode_html_form("hello world"), "hello+world");
+//! ```
+//!
 //! # `no_std` without `alloc`
 //!
 //! For environments without a heap (kernels, microcontrollers, boot
@@ -55,7 +106,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! pct = { version = "0.2", default-features = false }
+//! pct = { version = "0.3", default-features = false }
 //! ```
 //!
 //! The following APIs remain available without `alloc`:
@@ -67,6 +118,9 @@
 //!   [`find_first_byte_idempotent()`]
 //! - [`needs_encoding_raw()`], [`needs_encoding_idempotent()`]
 //! - [`encoded_len_raw()`], [`encoded_len_idempotent()`]
+//! - [`EncodedBytes`], [`DecodedChars`] (streaming iterators)
+//! - [`const_encode_to_buf()`], [`const_encoded_len()`] (const helpers)
+//! - [`const_encode!`] (compile-time encoding macro)
 //!
 //! # SIMD acceleration
 //!
@@ -74,7 +128,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! pct = { version = "0.2", features = ["simd"] }
+//! pct = { version = "0.3", features = ["simd"] }
 //! ```
 //!
 //! This enables `#![feature(portable_simd)]` internally and dispatches
@@ -96,9 +150,11 @@ extern crate alloc;
 
 // ── Always-available modules ────────────────────────────────────────
 
+mod const_encode;
 mod hex;
 mod scan;
 mod set;
+mod stream;
 
 #[cfg(feature = "simd")]
 mod simd;
@@ -112,6 +168,8 @@ mod encode;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod form;
 #[cfg(any(feature = "alloc", feature = "std"))]
+mod modes;
+#[cfg(any(feature = "alloc", feature = "std"))]
 mod normalize;
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "iri"))]
@@ -119,12 +177,14 @@ mod iri;
 
 // ── Re-exports: always available ────────────────────────────────────
 
+pub use const_encode::{const_encoded_len, const_encode_to_buf, CONST_ENCODE_BUF_SIZE, MAX_CONST_INPUT_LEN};
 pub use hex::{decode_hex_pair, hex_val, is_hex, is_hex_lower, HEX_LOWER, HEX_UPPER};
 pub use scan::{
     encoded_len_idempotent, encoded_len_raw, find_first_byte, find_first_byte_idempotent,
     find_first_byte_raw, is_valid, is_valid_bytes, needs_encoding_idempotent, needs_encoding_raw,
 };
 pub use set::EncodeSet;
+pub use stream::{DecodedChars, EncodedBytes};
 
 // ── Re-exports: alloc-gated ─────────────────────────────────────────
 
@@ -135,10 +195,114 @@ pub use encode::{encode, encode_bytes, encode_raw, encode_with};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use form::{decode_form, encode_form, encode_form_bytes};
 #[cfg(any(feature = "alloc", feature = "std"))]
+pub use modes::Pct;
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use normalize::normalize;
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "iri"))]
 pub use iri::encode_iri;
+
+// ── Compile-time encoding macro ────────────────────────────────────
+
+/// Percent-encode a string at **compile time**.
+///
+/// This macro performs percent-encoding during compilation, producing a
+/// `&'static str` with **zero runtime cost**. The encoded string is
+/// embedded directly in the binary as a constant.
+///
+/// This effectively makes the runtime cost **0 ns** for static strings —
+/// a feature few percent-encoding libraries offer.
+///
+/// # Arguments
+///
+/// - `$input` — A string literal (or any `const` `&str` expression) to
+///   encode.
+/// - `$set` *(optional)* — A reference to an [`EncodeSet`]. Defaults to
+///   [`COMPONENT`](EncodeSet::COMPONENT) (RFC 3986 unreserved characters).
+///
+/// # Limits
+///
+/// The input must be at most [`MAX_CONST_INPUT_LEN`] (1024) bytes.
+/// Longer inputs will cause a compile-time error.
+///
+/// # Examples
+///
+/// ```
+/// use pct::const_encode;
+///
+/// // Default: COMPONENT set (RFC 3986 unreserved chars)
+/// const ENCODED: &str = const_encode!("Hello World");
+/// assert_eq!(ENCODED, "Hello%20World");
+///
+/// // Custom encode set
+/// const PATH_ENCODED: &str = const_encode!("a/b c", &pct::EncodeSet::PATH);
+/// assert_eq!(PATH_ENCODED, "a/b%20c");
+///
+/// // Works in let bindings too (compile-time computed, zero runtime cost)
+/// let encoded: &str = const_encode!("café");
+/// assert_eq!(encoded, "caf%C3%A9");
+/// ```
+///
+/// # Compile-time validation
+///
+/// If the input exceeds the maximum length, compilation fails with a
+/// descriptive panic.
+#[macro_export]
+macro_rules! const_encode {
+    ($input:expr) => {
+        $crate::const_encode!($input, &$crate::EncodeSet::COMPONENT)
+    };
+    ($input:expr, $set:expr) => {{
+        const fn pct_encode(
+            s: &[u8],
+            set: &$crate::EncodeSet,
+        ) -> ([$u8; $crate::CONST_ENCODE_BUF_SIZE], usize) {
+            if s.len() > $crate::MAX_CONST_INPUT_LEN {
+                panic!(
+                    "const_encode! input exceeds maximum length of {} bytes (got {})",
+                    $crate::MAX_CONST_INPUT_LEN,
+                    s.len()
+                );
+            }
+            let mut buf = [0u8; $crate::CONST_ENCODE_BUF_SIZE];
+            let mut i = 0;
+            let mut o = 0;
+            while i < s.len() {
+                let b = s[i];
+                if set.contains(b) {
+                    buf[o] = b'%';
+                    buf[o + 1] = $crate::HEX_UPPER[(b >> 4) as usize];
+                    buf[o + 2] = $crate::HEX_UPPER[(b & 0x0F) as usize];
+                    o += 3;
+                } else {
+                    buf[o] = b;
+                    o += 1;
+                }
+                i += 1;
+            }
+            (buf, o)
+        }
+
+        const INPUT: &str = $input;
+        const RESULT: ([$u8; $crate::CONST_ENCODE_BUF_SIZE], usize) =
+            pct_encode(INPUT.as_bytes(), $set);
+        const ENCODED_LEN: usize = RESULT.1;
+
+        // SAFETY: The percent-encoding output is always valid ASCII/UTF-8
+        // because:
+        // 1. Unencoded bytes are copied from valid UTF-8 input.
+        // 2. Encoded bytes are percent sequences (%XX) which are ASCII.
+        const {
+            match core::str::from_utf8(&RESULT.0[..ENCODED_LEN]) {
+                Ok(s) => s,
+                Err(_) => {
+                    // This should never happen — the output is always ASCII.
+                    panic!("const_encode: internal error - output is not valid UTF-8")
+                }
+            }
+        }
+    }};
+}
 
 // ── Alloc-gated convenience APIs ────────────────────────────────────
 
@@ -350,5 +514,76 @@ mod tests {
 
         assert_eq!(encoded_len_raw(b"hello world", &set, false), 5 + 3 + 5);
         assert_eq!(encoded_len_idempotent(b"foo%20bar", &set), 9);
+    }
+
+    // ── const_encode! macro tests ──────────────────────────────
+
+    #[test]
+    fn const_encode_basic() {
+        const ENCODED: &str = const_encode!("Hello World");
+        assert_eq!(ENCODED, "Hello%20World");
+    }
+
+    #[test]
+    fn const_encode_noop() {
+        const ENCODED: &str = const_encode!("hello");
+        assert_eq!(ENCODED, "hello");
+    }
+
+    #[test]
+    fn const_encode_special_chars() {
+        const ENCODED: &str = const_encode!("a/b?c#d");
+        assert_eq!(ENCODED, "a%2Fb%3Fc%23d");
+    }
+
+    #[test]
+    fn const_encode_utf8() {
+        const ENCODED: &str = const_encode!("café");
+        assert_eq!(ENCODED, "caf%C3%A9");
+    }
+
+    #[test]
+    fn const_encode_path_set() {
+        const ENCODED: &str = const_encode!("a/b c", &EncodeSet::PATH);
+        assert_eq!(ENCODED, "a/b%20c");
+    }
+
+    #[test]
+    fn const_encode_whatwg_set() {
+        const ENCODED: &str = const_encode!("keep'safe", &EncodeSet::WHATWG);
+        assert_eq!(ENCODED, "keep'safe");
+    }
+
+    #[test]
+    fn const_encode_let_binding() {
+        let encoded: &str = const_encode!("test 123");
+        assert_eq!(encoded, "test%20123");
+    }
+
+    // ── Streaming iterator round-trip ──────────────────────────
+
+    #[test]
+    fn stream_roundtrip() {
+        let original = "hello world! café";
+        let set = EncodeSet::COMPONENT;
+
+        // Encode via iterator
+        let encoded_bytes: Vec<u8> = EncodedBytes::new(original, &set).collect();
+        let encoded_str = String::from_utf8(encoded_bytes).unwrap();
+
+        // Decode via iterator
+        let decoded: String = DecodedChars::new(&encoded_str).collect();
+        assert_eq!(decoded, original);
+    }
+
+    // ── Pct mode tests ─────────────────────────────────────────
+
+    #[test]
+    fn pct_modes_basic() {
+        use crate::Pct;
+
+        assert_eq!(Pct::encode_rfc3986("hello world"), "hello%20world");
+        assert_eq!(Pct::encode_whatwg("keep'safe"), "keep'safe");
+        assert_eq!(Pct::encode_html_form("hello world"), "hello+world");
     }
 }
