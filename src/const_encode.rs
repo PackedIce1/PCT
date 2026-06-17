@@ -26,7 +26,7 @@ pub const CONST_ENCODE_BUF_SIZE: usize = MAX_CONST_INPUT_LEN * 3;
 /// written.
 ///
 /// This is a `const fn` and can be used in const contexts. The caller must
-/// ensure `buf` is large enough (at least [`const_encoded_len`](Self::const_encoded_len)
+/// ensure `buf` is large enough (at least [`const_encoded_len`](crate::const_encoded_len)
 /// bytes).
 ///
 /// # Examples
