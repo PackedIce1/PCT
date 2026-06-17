@@ -382,17 +382,17 @@ mod tests {
     fn whatwg_encodes_non_url_code_points() {
         let set = EncodeSet::WHATWG;
         // Non-URL-code-point characters should be encoded
-        assert!(set.contains(b' '));  // space
-        assert!(set.contains(b'"'));  // "
-        assert!(set.contains(b'#'));  // #
-        assert!(set.contains(b'<'));  // <
-        assert!(set.contains(b'>'));  // >
+        assert!(set.contains(b' ')); // space
+        assert!(set.contains(b'"')); // "
+        assert!(set.contains(b'#')); // #
+        assert!(set.contains(b'<')); // <
+        assert!(set.contains(b'>')); // >
         assert!(set.contains(b'\\')); // backslash
-        assert!(set.contains(b'^'));  // ^
-        assert!(set.contains(b'`'));  // backtick
-        assert!(set.contains(b'{'));  // {
-        assert!(set.contains(b'|'));  // |
-        assert!(set.contains(b'}'));  // }
+        assert!(set.contains(b'^')); // ^
+        assert!(set.contains(b'`')); // backtick
+        assert!(set.contains(b'{')); // {
+        assert!(set.contains(b'|')); // |
+        assert!(set.contains(b'}')); // }
     }
 
     #[test]
@@ -404,7 +404,7 @@ mod tests {
         assert!(!whatwg.contains(b'!'));
         assert!(comp.contains(b'('));
         assert!(!whatwg.contains(b'('));
-        assert!(comp.contains(b'+' ));
+        assert!(comp.contains(b'+'));
         assert!(!whatwg.contains(b'+'));
         assert!(comp.contains(b','));
         assert!(!whatwg.contains(b','));
