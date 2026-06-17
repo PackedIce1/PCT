@@ -154,7 +154,7 @@ mod tests {
     fn const_encoded_len_path_set() {
         let input = b"a/b c";
         let set = EncodeSet::PATH;
-        assert_eq!(const_encoded_len(input, &set), 6); // a/b%20c = 6
+        assert_eq!(const_encoded_len(input, &set), 7); // a/b%20c = 7
     }
 
     #[test]
