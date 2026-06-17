@@ -352,20 +352,20 @@ fn utf8_seq_len(leading_byte: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::String;
+    use alloc::vec::Vec;
 
     // ── EncodedBytes tests ─────────────────────────────────────────
 
     #[test]
     fn encoded_bytes_simple() {
-        let bytes: Vec<u8> =
-            EncodedBytes::new("hello world", &EncodeSet::COMPONENT).collect();
+        let bytes: Vec<u8> = EncodedBytes::new("hello world", &EncodeSet::COMPONENT).collect();
         assert_eq!(String::from_utf8(bytes).unwrap(), "hello%20world");
     }
 
     #[test]
     fn encoded_bytes_noop() {
-        let bytes: Vec<u8> =
-            EncodedBytes::new("hello", &EncodeSet::COMPONENT).collect();
+        let bytes: Vec<u8> = EncodedBytes::new("hello", &EncodeSet::COMPONENT).collect();
         assert_eq!(String::from_utf8(bytes).unwrap(), "hello");
     }
 
@@ -383,16 +383,14 @@ mod tests {
 
     #[test]
     fn encoded_bytes_special_chars() {
-        let bytes: Vec<u8> =
-            EncodedBytes::new("a/b?c#d", &EncodeSet::COMPONENT).collect();
+        let bytes: Vec<u8> = EncodedBytes::new("a/b?c#d", &EncodeSet::COMPONENT).collect();
         assert_eq!(String::from_utf8(bytes).unwrap(), "a%2Fb%3Fc%23d");
     }
 
     #[test]
     fn encoded_bytes_binary() {
         let input: &[u8] = &[0x00, 0xFF, 0x20];
-        let bytes: Vec<u8> =
-            EncodedBytes::new_bytes(input, &EncodeSet::COMPONENT).collect();
+        let bytes: Vec<u8> = EncodedBytes::new_bytes(input, &EncodeSet::COMPONENT).collect();
         assert_eq!(bytes, b"%00%FF%20");
     }
 
@@ -490,8 +488,7 @@ mod tests {
     #[test]
     fn decoded_chars_cjk() {
         // 日本語 encoded as UTF-8 percent-encoding
-        let chars: String =
-            DecodedChars::new("%E6%97%A5%E6%9C%AC%E8%AA%9E").collect();
+        let chars: String = DecodedChars::new("%E6%97%A5%E6%9C%AC%E8%AA%9E").collect();
         assert_eq!(chars, "日本語");
     }
 
