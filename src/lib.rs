@@ -177,7 +177,9 @@ mod iri;
 
 // ── Re-exports: always available ────────────────────────────────────
 
-pub use const_encode::{const_encoded_len, const_encode_to_buf, CONST_ENCODE_BUF_SIZE, MAX_CONST_INPUT_LEN};
+pub use const_encode::{
+    const_encode_to_buf, const_encoded_len, CONST_ENCODE_BUF_SIZE, MAX_CONST_INPUT_LEN,
+};
 pub use hex::{decode_hex_pair, hex_val, is_hex, is_hex_lower, HEX_LOWER, HEX_UPPER};
 pub use scan::{
     encoded_len_idempotent, encoded_len_raw, find_first_byte, find_first_byte_idempotent,
@@ -256,7 +258,7 @@ macro_rules! const_encode {
         const fn pct_encode(
             s: &[u8],
             set: &$crate::EncodeSet,
-        ) -> ([$u8; $crate::CONST_ENCODE_BUF_SIZE], usize) {
+        ) -> ([u8; $crate::CONST_ENCODE_BUF_SIZE], usize) {
             if s.len() > $crate::MAX_CONST_INPUT_LEN {
                 panic!(
                     "const_encode! input exceeds maximum length of {} bytes (got {})",
@@ -284,7 +286,7 @@ macro_rules! const_encode {
         }
 
         const INPUT: &str = $input;
-        const RESULT: ([$u8; $crate::CONST_ENCODE_BUF_SIZE], usize) =
+        const RESULT: ([u8; $crate::CONST_ENCODE_BUF_SIZE], usize) =
             pct_encode(INPUT.as_bytes(), $set);
         const ENCODED_LEN: usize = RESULT.1;
 
