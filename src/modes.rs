@@ -289,10 +289,10 @@ mod tests {
         // WHATWG passes them through
         let whatwg = Pct::encode_whatwg(input);
         assert_ne!(rfc, whatwg);
-        assert!(rfc.contains("%21"));  // ! encoded
-        assert!(rfc.contains("%27"));  // ' encoded
-        assert!(rfc.contains("%28"));  // ( encoded
-        assert!(rfc.contains("%29"));  // ) encoded
-        assert_eq!(whatwg, input);    // nothing encoded
+        assert!(rfc.contains("%21")); // ! encoded
+        assert!(rfc.contains("%27")); // ' encoded
+        assert!(rfc.contains("%28")); // ( encoded
+        assert!(rfc.contains("%29")); // ) encoded
+        assert_eq!(whatwg, input); // nothing encoded
     }
 }
